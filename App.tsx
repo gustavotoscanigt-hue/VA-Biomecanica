@@ -25,9 +25,9 @@ const App: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Check file size (rough estimate for base64 limits)
-    if (file.size > 20 * 1024 * 1024) {
-      setErrorMessage('O arquivo é muito grande. Use vídeos menores que 20MB para análise via API.');
+    // Aumentado o limite de tamanho para ~100MB para suportar vídeos de até 1 minuto
+    if (file.size > 100 * 1024 * 1024) {
+      setErrorMessage('O arquivo é muito grande. Use vídeos menores que 100MB (aprox. 1 minuto).');
       setState(AppState.ERROR);
       return;
     }
@@ -37,21 +37,32 @@ const App: React.FC = () => {
     setVideoUrl(url);
 
     try {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = async () => {
-        const base64Data = (reader.result as string).split(',')[1];
-        setState(AppState.ANALYZING);
-        
-        try {
-          const result = await analyzeSurfVideo(base64Data, file.type);
-          setAnalysis(result);
-          setState(AppState.COMPLETED);
-        } catch (error) {
-          console.error(error);
-          setErrorMessage('Erro ao analisar vídeo. Verifique sua chave de API ou conexão.');
-          setState(AppState.ERROR);
+      // Validar duração se necessário (opcional, mas o usuário pediu especificamente "tempo")
+      const videoElement = document.createElement('video');
+      videoElement.src = url;
+      videoElement.onloadedmetadata = () => {
+        if (videoElement.duration > 65) { // Tolerância de 5s
+           setErrorMessage('O vídeo excede o limite de 1 minuto permitido para análise.');
+           setState(AppState.ERROR);
+           return;
         }
+        
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = async () => {
+          const base64Data = (reader.result as string).split(',')[1];
+          setState(AppState.ANALYZING);
+          
+          try {
+            const result = await analyzeSurfVideo(base64Data, file.type);
+            setAnalysis(result);
+            setState(AppState.COMPLETED);
+          } catch (error) {
+            console.error(error);
+            setErrorMessage('Erro ao analisar vídeo. Verifique sua chave de API ou conexão.');
+            setState(AppState.ERROR);
+          }
+        };
       };
     } catch (err) {
       setErrorMessage('Falha ao processar arquivo.');
@@ -117,7 +128,7 @@ const App: React.FC = () => {
                     Elite Biomechanical Analysis <span className="text-cyan-400">Powered by Gemini 3</span>
                   </h2>
                   <p className="text-gray-500 text-sm max-w-md mx-auto mb-8">
-                    Upload your raw footage. Get WSL-grade metrics, postural correction data, and AI-curated training drills in seconds.
+                    Upload your raw footage (up to 1 minute). Get WSL-grade metrics, postural correction data, and AI-curated training drills in seconds.
                   </p>
                   <button 
                     onClick={() => fileInputRef.current?.click()}
