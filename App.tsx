@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, 
   Waves, 
@@ -7,7 +7,8 @@ import {
   CheckCircle, 
   AlertCircle,
   Cpu,
-  Target
+  Target,
+  Key
 } from 'lucide-react';
 import { AppState, AnalysisResult } from './types';
 import { analyzeSurfVideo } from './services/geminiService';
@@ -18,7 +19,29 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [hasKey, setHasKey] = useState<boolean>(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const checkApiKey = async () => {
+      // Se estamos num ambiente que suporta seleção de chave (AI Studio)
+      if (window.aistudio) {
+        const isSelected = await window.aistudio.hasSelectedApiKey();
+        setHasKey(isSelected);
+      } else {
+        // Fallback para variáveis de ambiente padrão
+        setHasKey(!!process.env.API_KEY);
+      }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setHasKey(true); // Assume sucesso para evitar race conditions
+    }
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -39,12 +62,18 @@ const App: React.FC = () => {
         setState(AppState.COMPLETED);
       } catch (error: any) {
         console.error("Analysis Error:", error);
-        setErrorMessage(error.message || 'Erro ao processar o vídeo. Verifique sua conexão.');
+        
+        if (error.message?.includes('API Key')) {
+          setHasKey(false);
+          setErrorMessage('Chave de API necessária.');
+        } else {
+          setErrorMessage(error.message || 'Erro inesperado.');
+        }
         setState(AppState.ERROR);
       }
     };
     reader.onerror = () => {
-      setErrorMessage('Falha ao ler o arquivo selecionado.');
+      setErrorMessage('Falha ao ler o arquivo.');
       setState(AppState.ERROR);
     };
     reader.readAsDataURL(file);
@@ -56,6 +85,29 @@ const App: React.FC = () => {
     setVideoUrl(null);
     setErrorMessage('');
   };
+
+  // Se não houver chave detectada, mostramos a tela de conexão
+  if (!hasKey) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6 text-center">
+        <div className="max-w-md w-full bg-[#0c0c0e] border border-white/10 p-8 rounded-3xl">
+          <div className="bg-cyan-500/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <Key className="text-cyan-400" size={32} />
+          </div>
+          <h2 className="text-2xl font-black wsl-italic uppercase mb-4 tracking-tight">AI Connection Needed</h2>
+          <p className="text-gray-500 text-sm mb-8 leading-relaxed">
+            Para realizar a análise de vídeo, é necessário conectar sua chave de API do Gemini.
+          </p>
+          <button 
+            onClick={handleSelectKey}
+            className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest transition-all"
+          >
+            Connect API Key
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30">
@@ -74,11 +126,6 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          <div className="hidden md:flex items-center gap-8">
-            <a href="#" className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b-2 border-cyan-400 pb-1">Dashboard</a>
-            <a href="#" className="text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-white transition-colors">Academy</a>
-          </div>
-
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="bg-white text-black px-4 py-2 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-cyan-400 transition-all flex items-center gap-2"
@@ -106,33 +153,17 @@ const App: React.FC = () => {
                   <h2 className="text-3xl font-black wsl-italic uppercase mb-4 max-w-lg leading-tight">
                     Professional Surf Analysis <span className="text-cyan-400">IA</span>
                   </h2>
-                  <p className="text-gray-500 text-sm max-w-md mx-auto mb-8">
-                    Upload your raw footage for instant professional biomechanics. No complex setup, just results.
+                  <p className="text-gray-500 text-sm max-w-md mx-auto mb-8 leading-relaxed">
+                    Upload your raw footage for instant professional biomechanics. Powered by Gemini.
                   </p>
                   <button 
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all"
                   >
                     <Upload size={20} />
-                    Start Upload
+                    Select Footage
                   </button>
                </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl">
-              {[
-                { icon: <Activity />, title: "Flow Telemetry", desc: "Track speed maintenance" },
-                { icon: <Target />, title: "Posture Radar", desc: "Alignment analysis" },
-                { icon: <CheckCircle />, title: "Drill Generation", desc: "Training exercises" }
-              ].map((feature, i) => (
-                <div key={i} className="flex flex-col items-center">
-                  <div className="bg-white/5 p-4 rounded-2xl mb-4 text-cyan-400">
-                    {feature.icon}
-                  </div>
-                  <h4 className="font-bold uppercase text-xs text-white mb-2">{feature.title}</h4>
-                  <p className="text-gray-500 text-[11px] leading-relaxed">{feature.desc}</p>
-                </div>
-              ))}
             </div>
           </div>
         )}
@@ -145,22 +176,22 @@ const App: React.FC = () => {
                 <Waves className="text-cyan-400 animate-pulse" size={32} />
               </div>
             </div>
-            <h3 className="text-2xl font-black wsl-italic uppercase mb-2">
+            <h3 className="text-2xl font-black wsl-italic uppercase mb-2 tracking-widest">
               {state === AppState.UPLOADING ? 'Uploading...' : 'Analyzing Footage...'}
             </h3>
-            <p className="text-gray-500 text-sm animate-pulse">
-              Generating biomechanical data using Gemini IA...
+            <p className="text-gray-500 text-sm animate-pulse font-bold uppercase tracking-widest">
+              Consulting Biomechanical Core...
             </p>
           </div>
         )}
 
         {state === AppState.ERROR && (
           <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <div className="bg-red-500/10 p-4 rounded-full mb-6">
+            <div className="bg-red-500/10 p-4 rounded-full mb-6 border border-red-500/20">
               <AlertCircle className="text-red-500" size={48} />
             </div>
             <h3 className="text-2xl font-black wsl-italic uppercase mb-2 text-red-500">Analysis Failed</h3>
-            <p className="text-gray-500 text-sm max-w-md mb-8">{errorMessage}</p>
+            <p className="text-gray-400 text-sm max-w-md mb-8">{errorMessage}</p>
             <button 
               onClick={reset}
               className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-xl font-bold uppercase tracking-widest transition-all"
@@ -177,7 +208,7 @@ const App: React.FC = () => {
 
       <footer className="border-t border-white/5 bg-[#080808] py-12 mt-20 text-center">
           <p className="text-gray-600 text-[10px] font-bold uppercase tracking-[0.3em]">
-            SurfCoach IA © 2024 • Powered by Google Gemini 3
+            SurfCoach IA © 2024 • Professional Performance Division
           </p>
       </footer>
     </div>
