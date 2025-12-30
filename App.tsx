@@ -1,14 +1,12 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Upload, 
   Waves, 
   Activity, 
   CheckCircle, 
   AlertCircle,
-  Cpu,
-  Target,
-  Key
+  Cpu
 } from 'lucide-react';
 import { AppState, AnalysisResult } from './types';
 import { analyzeSurfVideo } from './services/geminiService';
@@ -19,28 +17,18 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [hasKey, setHasKey] = useState<boolean>(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const checkApiKey = async () => {
-      // Se estamos num ambiente que suporta seleção de chave (AI Studio)
-      if (window.aistudio) {
-        const isSelected = await window.aistudio.hasSelectedApiKey();
-        setHasKey(isSelected);
-      } else {
-        // Fallback para variáveis de ambiente padrão
-        setHasKey(!!process.env.API_KEY);
-      }
-    };
-    checkApiKey();
-  }, []);
-
-  const handleSelectKey = async () => {
+  // Função mestre para iniciar o upload, lidando com a chave de API de forma transparente
+  const startUploadFlow = async () => {
     if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      setHasKey(true); // Assume sucesso para evitar race conditions
+      const hasKey = await window.aistudio.hasSelectedApiKey();
+      if (!hasKey) {
+        // Abre o seletor mas não bloqueia o processo
+        await window.aistudio.openSelectKey();
+      }
     }
+    fileInputRef.current?.click();
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -57,18 +45,20 @@ const App: React.FC = () => {
         const base64Data = (reader.result as string).split(',')[1];
         setState(AppState.ANALYZING);
         
+        // A chave será capturada aqui dentro de process.env.API_KEY
         const result = await analyzeSurfVideo(base64Data, file.type);
         setAnalysis(result);
         setState(AppState.COMPLETED);
       } catch (error: any) {
-        console.error("Analysis Error:", error);
+        console.error("Erro na análise:", error);
         
-        if (error.message?.includes('API Key')) {
-          setHasKey(false);
-          setErrorMessage('Chave de API necessária.');
-        } else {
-          setErrorMessage(error.message || 'Erro inesperado.');
+        let msg = error.message || 'Erro desconhecido.';
+        if (msg.includes('API Key') || msg.includes('403')) {
+          msg = 'Chave de API inválida ou não selecionada. Clique em "Select Footage" novamente para configurar.';
+          if (window.aistudio) window.aistudio.openSelectKey();
         }
+
+        setErrorMessage(msg);
         setState(AppState.ERROR);
       }
     };
@@ -86,29 +76,6 @@ const App: React.FC = () => {
     setErrorMessage('');
   };
 
-  // Se não houver chave detectada, mostramos a tela de conexão
-  if (!hasKey) {
-    return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6 text-center">
-        <div className="max-w-md w-full bg-[#0c0c0e] border border-white/10 p-8 rounded-3xl">
-          <div className="bg-cyan-500/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <Key className="text-cyan-400" size={32} />
-          </div>
-          <h2 className="text-2xl font-black wsl-italic uppercase mb-4 tracking-tight">AI Connection Needed</h2>
-          <p className="text-gray-500 text-sm mb-8 leading-relaxed">
-            Para realizar a análise de vídeo, é necessário conectar sua chave de API do Gemini.
-          </p>
-          <button 
-            onClick={handleSelectKey}
-            className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest transition-all"
-          >
-            Connect API Key
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30">
       {/* NAVBAR */}
@@ -122,12 +89,12 @@ const App: React.FC = () => {
               <h1 className="text-xl wsl-italic tracking-tighter uppercase leading-none">
                 SurfCoach <span className="text-cyan-400">IA</span>
               </h1>
-              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-[0.2em]">High Performance Lab</p>
+              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-[0.2em]">Performance Lab</p>
             </div>
           </div>
           
           <button 
-            onClick={() => fileInputRef.current?.click()}
+            onClick={startUploadFlow}
             className="bg-white text-black px-4 py-2 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-cyan-400 transition-all flex items-center gap-2"
           >
             <Upload size={14} />
@@ -154,11 +121,12 @@ const App: React.FC = () => {
                     Professional Surf Analysis <span className="text-cyan-400">IA</span>
                   </h2>
                   <p className="text-gray-500 text-sm max-w-md mx-auto mb-8 leading-relaxed">
-                    Upload your raw footage for instant professional biomechanics. Powered by Gemini.
+                    Arraste ou selecione seu vídeo para uma análise biomecânica completa. 
+                    Otimizado para máxima compatibilidade.
                   </p>
                   <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all"
+                    onClick={startUploadFlow}
+                    className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)]"
                   >
                     <Upload size={20} />
                     Select Footage
@@ -177,10 +145,10 @@ const App: React.FC = () => {
               </div>
             </div>
             <h3 className="text-2xl font-black wsl-italic uppercase mb-2 tracking-widest">
-              {state === AppState.UPLOADING ? 'Uploading...' : 'Analyzing Footage...'}
+              {state === AppState.UPLOADING ? 'Uploading...' : 'Analyzing Biomechanics...'}
             </h3>
             <p className="text-gray-500 text-sm animate-pulse font-bold uppercase tracking-widest">
-              Consulting Biomechanical Core...
+              Processing Frames via Gemini Core...
             </p>
           </div>
         )}
@@ -191,7 +159,7 @@ const App: React.FC = () => {
               <AlertCircle className="text-red-500" size={48} />
             </div>
             <h3 className="text-2xl font-black wsl-italic uppercase mb-2 text-red-500">Analysis Failed</h3>
-            <p className="text-gray-400 text-sm max-w-md mb-8">{errorMessage}</p>
+            <p className="text-gray-400 text-sm max-w-md mb-8 leading-relaxed font-medium">{errorMessage}</p>
             <button 
               onClick={reset}
               className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-xl font-bold uppercase tracking-widest transition-all"
