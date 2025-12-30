@@ -29,31 +29,34 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
 
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = async () => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
         const base64Data = (reader.result as string).split(',')[1];
         setState(AppState.ANALYZING);
         
-        try {
-          const result = await analyzeSurfVideo(base64Data, file.type);
-          setAnalysis(result);
-          setState(AppState.COMPLETED);
-        } catch (error) {
-          console.error(error);
-          setErrorMessage('Erro ao analisar vídeo. O arquivo pode ser grande demais para o processamento direto ou há um problema na conexão.');
-          setState(AppState.ERROR);
-        }
-      };
-      reader.onerror = () => {
-        setErrorMessage('Falha ao ler o arquivo de vídeo.');
+        const result = await analyzeSurfVideo(base64Data, file.type);
+        setAnalysis(result);
+        setState(AppState.COMPLETED);
+      } catch (error: any) {
+        console.error("Detailed error during analysis:", error);
+        
+        // Mensagens amigáveis baseadas no erro técnico
+        let msg = 'Erro inesperado na análise.';
+        if (error.message?.includes('413')) msg = 'O vídeo é muito pesado para processamento direto. Tente um clip mais curto ou comprimido.';
+        else if (error.message?.includes('429')) msg = 'Muitas requisições. Aguarde um momento.';
+        else if (error.message) msg = error.message;
+
+        setErrorMessage(msg);
         setState(AppState.ERROR);
-      };
-    } catch (err) {
-      setErrorMessage('Falha ao processar arquivo.');
+      }
+    };
+    reader.onerror = (e) => {
+      console.error("FileReader error:", e);
+      setErrorMessage('Falha ao ler o arquivo físico.');
       setState(AppState.ERROR);
-    }
+    };
+    reader.readAsDataURL(file);
   };
 
   const reset = () => {
@@ -111,10 +114,10 @@ const App: React.FC = () => {
                <div className="bg-[#0c0c0e] p-8 rounded-3xl border border-white/10 relative z-10">
                   <Cpu className="text-cyan-400 mx-auto mb-6" size={48} />
                   <h2 className="text-3xl font-black wsl-italic uppercase mb-4 max-w-lg leading-tight">
-                    Elite Biomechanical Analysis <span className="text-cyan-400">Powered by Gemini 3</span>
+                    Elite Biomechanical Analysis <span className="text-cyan-400">Powered by Gemini 3 Pro</span>
                   </h2>
                   <p className="text-gray-500 text-sm max-w-md mx-auto mb-8">
-                    Upload your raw footage. Get WSL-grade metrics, postural correction data, and AI-curated training drills in seconds. No duration limits.
+                    Upload your raw footage for frame-by-frame professional analysis. No limits, pure performance.
                   </p>
                   <button 
                     onClick={() => fileInputRef.current?.click()}
@@ -155,8 +158,8 @@ const App: React.FC = () => {
             <h3 className="text-2xl font-black wsl-italic uppercase mb-2">
               {state === AppState.UPLOADING ? 'Uploading Footage...' : 'Analyzing Biomechanics...'}
             </h3>
-            <p className="text-gray-500 text-sm animate-pulse">
-              Gemini 3 Flash is processing frames for elite metrics
+            <p className="text-gray-500 text-sm animate-pulse max-w-xs text-center">
+              Gemini 3 Pro is processing frames using Deep Thinking for elite metrics...
             </p>
           </div>
         )}
@@ -182,7 +185,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* FOOTER */}
       <footer className="border-t border-white/5 bg-[#080808] py-12 mt-20">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex items-center gap-3 opacity-50">
@@ -192,14 +194,7 @@ const App: React.FC = () => {
             </span>
           </div>
           <div className="text-gray-600 text-[10px] font-bold uppercase tracking-[0.3em]">
-            Elite Performance Labs © 2024 • Powered by Google Gemini
-          </div>
-          <div className="flex gap-6">
-            {['Instagram', 'Twitter', 'WSL', 'Support'].map(item => (
-              <a key={item} href="#" className="text-gray-600 hover:text-cyan-400 text-[10px] font-black uppercase tracking-widest transition-colors">
-                {item}
-              </a>
-            ))}
+            Elite Performance Labs © 2024 • Powered by Gemini 3 Pro
           </div>
         </div>
       </footer>

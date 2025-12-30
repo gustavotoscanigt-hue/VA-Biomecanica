@@ -2,28 +2,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// Função para obter o cliente AI garantindo que a chave esteja presente
-const getAIClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API_KEY não configurada no ambiente.");
-  }
-  return new GoogleGenAI({ apiKey });
-};
-
 export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): Promise<AnalysisResult> => {
-  const ai = getAIClient();
-  const model = 'gemini-3-flash-preview';
+  // Inicialização obrigatória dentro da função conforme diretrizes
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  // Upgrade para Pro para análise biomecânica de alta complexidade
+  const modelName = 'gemini-3-pro-preview';
 
   const response = await ai.models.generateContent({
-    model: model,
+    model: modelName,
     contents: {
       parts: [
         {
-          text: `You are a professional WSL Head Coach. Analyze this surf clip for professional biomechanics. 
-          Identify the overall score (0-10), analyze posture (shoulders, chest, rotation), flow/power telemetry (10 points over time), 
-          detect maneuvers, and provide 3 specific drills to improve. 
-          The output MUST be in valid JSON.`,
+          text: `You are a professional WSL (World Surf League) Head Coach and Biomechanics Expert. 
+          Analyze this surf footage in detail. 
+          1. Evaluate overall performance (0-10).
+          2. Provide a technical summary of the wave.
+          3. Rate posture metrics: shoulders, chest, hips, rotation, and knee flex (all 0-10).
+          4. Generate 10 data points of flow and power telemetry.
+          5. Detect all maneuvers performed.
+          6. Suggest 3 elite-level drills to correct flaws.
+          
+          Return the data STRICTLY as JSON.`,
         },
         {
           inlineData: {
@@ -34,6 +34,8 @@ export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): P
       ],
     },
     config: {
+      // Ativação do modo de raciocínio para análise de vídeo
+      thinkingConfig: { thinkingBudget: 16000 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -95,8 +97,13 @@ export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): P
   });
 
   if (!response.text) {
-    throw new Error("Empty response from AI");
+    throw new Error("A IA não retornou conteúdo. O vídeo pode ter sido bloqueado ou é muito curto.");
   }
 
-  return JSON.parse(response.text) as AnalysisResult;
+  try {
+    return JSON.parse(response.text) as AnalysisResult;
+  } catch (e) {
+    console.error("Erro ao parsear JSON da IA:", response.text);
+    throw new Error("A resposta da IA não está no formato esperado.");
+  }
 };
