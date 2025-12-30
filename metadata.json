@@ -1,0 +1,7 @@
+{
+  "name": "SurfCoach IA",
+  "description": "Professional surf video analysis platform with biomechanical metrics, flow telemetry, and AI-driven training plans using Gemini 3 Flash.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
