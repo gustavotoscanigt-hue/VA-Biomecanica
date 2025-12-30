@@ -2,10 +2,17 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult } from "../types";
 
-// Always use the named parameter and process.env.API_KEY directly.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Função para obter o cliente AI garantindo que a chave esteja presente
+const getAIClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API_KEY não configurada no ambiente.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): Promise<AnalysisResult> => {
+  const ai = getAIClient();
   const model = 'gemini-3-flash-preview';
 
   const response = await ai.models.generateContent({
