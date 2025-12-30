@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Upload, 
   Waves, 
@@ -7,9 +7,7 @@ import {
   CheckCircle, 
   AlertCircle,
   Cpu,
-  Target,
-  Lock,
-  ShieldCheck
+  Target
 } from 'lucide-react';
 import { AppState, AnalysisResult } from './types';
 import { analyzeSurfVideo } from './services/geminiService';
@@ -20,30 +18,7 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isKeyAuthorized, setIsKeyAuthorized] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Verificação inicial da chave de API (obrigatório para modelos Pro/Elite)
-  useEffect(() => {
-    const checkKey = async () => {
-      if (typeof window.aistudio !== 'undefined') {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setIsKeyAuthorized(hasKey);
-      } else {
-        // Se não estiver no ambiente AI Studio, assume que a chave vem via process.env
-        setIsKeyAuthorized(!!process.env.API_KEY);
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleAuthorize = async () => {
-    if (typeof window.aistudio !== 'undefined') {
-      await window.aistudio.openSelectKey();
-      // Conforme diretrizes: assumir sucesso após o clique para evitar race condition
-      setIsKeyAuthorized(true);
-    }
-  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -63,24 +38,13 @@ const App: React.FC = () => {
         setAnalysis(result);
         setState(AppState.COMPLETED);
       } catch (error: any) {
-        console.error("Detailed error during analysis:", error);
-        
-        let msg = 'An API Key must be set to run elite models.';
-        if (error.message?.includes('API Key')) {
-          msg = 'Sua chave de API expirou ou não foi configurada. Por favor, re-autorize o acesso.';
-          setIsKeyAuthorized(false); // Força nova autorização
-        } else if (error.message?.includes('413')) {
-          msg = 'O vídeo é muito pesado para processamento direto.';
-        } else if (error.message) {
-          msg = error.message;
-        }
-
-        setErrorMessage(msg);
+        console.error("Analysis Error:", error);
+        setErrorMessage(error.message || 'Erro ao processar o vídeo. Verifique sua conexão.');
         setState(AppState.ERROR);
       }
     };
     reader.onerror = () => {
-      setErrorMessage('Falha ao ler o arquivo físico.');
+      setErrorMessage('Falha ao ler o arquivo selecionado.');
       setState(AppState.ERROR);
     };
     reader.readAsDataURL(file);
@@ -92,42 +56,6 @@ const App: React.FC = () => {
     setVideoUrl(null);
     setErrorMessage('');
   };
-
-  // TELA DE AUTENTICAÇÃO INICIAL
-  if (!isKeyAuthorized) {
-    return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-[#0c0c0e] border border-white/10 rounded-3xl p-8 text-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-cyan-500/5 blur-3xl -z-10"></div>
-          <div className="bg-cyan-500/10 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-cyan-500/20">
-            <Lock className="text-cyan-400" size={40} />
-          </div>
-          <h2 className="text-2xl font-black wsl-italic uppercase mb-4 tracking-tight">
-            Authentication Required
-          </h2>
-          <p className="text-gray-500 text-sm mb-8 leading-relaxed">
-            SurfCoach IA utilizes Gemini 3 Pro for elite biomechanical analysis. To continue, you must authorize your API Key with a paid GCP project.
-          </p>
-          <div className="space-y-4">
-            <button 
-              onClick={handleAuthorize}
-              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all"
-            >
-              <ShieldCheck size={20} />
-              Authorize Elite Access
-            </button>
-            <a 
-              href="https://ai.google.dev/gemini-api/docs/billing" 
-              target="_blank" 
-              className="block text-[10px] text-gray-600 hover:text-cyan-400 uppercase font-bold tracking-widest transition-colors"
-            >
-              Learn about billing & keys
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30">
@@ -149,11 +77,6 @@ const App: React.FC = () => {
           <div className="hidden md:flex items-center gap-8">
             <a href="#" className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b-2 border-cyan-400 pb-1">Dashboard</a>
             <a href="#" className="text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-white transition-colors">Academy</a>
-            <div className="h-4 w-px bg-white/10"></div>
-            <div className="flex items-center gap-2 px-3 py-1 bg-cyan-500/10 rounded-full border border-cyan-500/20">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></div>
-              <span className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Pro License Active</span>
-            </div>
           </div>
 
           <button 
@@ -161,7 +84,7 @@ const App: React.FC = () => {
             className="bg-white text-black px-4 py-2 rounded-full font-black text-[10px] uppercase tracking-widest hover:bg-cyan-400 transition-all flex items-center gap-2"
           >
             <Upload size={14} />
-            Analyze New Session
+            Analyze Video
           </button>
           <input 
             type="file" 
@@ -181,26 +104,26 @@ const App: React.FC = () => {
                <div className="bg-[#0c0c0e] p-8 rounded-3xl border border-white/10 relative z-10">
                   <Cpu className="text-cyan-400 mx-auto mb-6" size={48} />
                   <h2 className="text-3xl font-black wsl-italic uppercase mb-4 max-w-lg leading-tight">
-                    Elite Biomechanical Analysis <span className="text-cyan-400">Powered by Gemini 3 Pro</span>
+                    Professional Surf Analysis <span className="text-cyan-400">IA</span>
                   </h2>
                   <p className="text-gray-500 text-sm max-w-md mx-auto mb-8">
-                    Upload your raw footage for frame-by-frame professional analysis. Unlimited duration, pure performance metrics.
+                    Upload your raw footage for instant professional biomechanics. No complex setup, just results.
                   </p>
                   <button 
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all"
                   >
                     <Upload size={20} />
-                    Start Video Upload
+                    Start Upload
                   </button>
                </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl">
               {[
-                { icon: <Activity />, title: "Flow Telemetry", desc: "Track speed maintenance through maneuvers" },
-                { icon: <Target />, title: "Posture Radar", desc: "Shoulder, hips and chest alignment analysis" },
-                { icon: <CheckCircle />, title: "Drill Generation", desc: "Personalized exercises based on your flaws" }
+                { icon: <Activity />, title: "Flow Telemetry", desc: "Track speed maintenance" },
+                { icon: <Target />, title: "Posture Radar", desc: "Alignment analysis" },
+                { icon: <CheckCircle />, title: "Drill Generation", desc: "Training exercises" }
               ].map((feature, i) => (
                 <div key={i} className="flex flex-col items-center">
                   <div className="bg-white/5 p-4 rounded-2xl mb-4 text-cyan-400">
@@ -223,10 +146,10 @@ const App: React.FC = () => {
               </div>
             </div>
             <h3 className="text-2xl font-black wsl-italic uppercase mb-2">
-              {state === AppState.UPLOADING ? 'Uploading Footage...' : 'Analyzing Biomechanics...'}
+              {state === AppState.UPLOADING ? 'Uploading...' : 'Analyzing Footage...'}
             </h3>
-            <p className="text-gray-500 text-sm animate-pulse max-w-xs text-center">
-              Gemini 3 Pro is processing frames using Deep Thinking for elite metrics...
+            <p className="text-gray-500 text-sm animate-pulse">
+              Generating biomechanical data using Gemini IA...
             </p>
           </div>
         )}
@@ -252,18 +175,10 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="border-t border-white/5 bg-[#080808] py-12 mt-20">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
-          <div className="flex items-center gap-3 opacity-50">
-            <Waves className="text-cyan-400" size={20} />
-            <span className="text-sm font-black wsl-italic uppercase tracking-tighter">
-              SurfCoach <span className="text-cyan-400">IA</span>
-            </span>
-          </div>
-          <div className="text-gray-600 text-[10px] font-bold uppercase tracking-[0.3em]">
-            Elite Performance Labs © 2024 • Powered by Gemini 3 Pro
-          </div>
-        </div>
+      <footer className="border-t border-white/5 bg-[#080808] py-12 mt-20 text-center">
+          <p className="text-gray-600 text-[10px] font-bold uppercase tracking-[0.3em]">
+            SurfCoach IA © 2024 • Powered by Google Gemini 3
+          </p>
       </footer>
     </div>
   );

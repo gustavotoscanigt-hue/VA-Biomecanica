@@ -3,11 +3,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult } from "../types";
 
 export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): Promise<AnalysisResult> => {
-  // Inicialização obrigatória dentro da função conforme diretrizes
+  // Inicialização direta usando a chave do ambiente, sem intermediários.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Upgrade para Pro para análise biomecânica de alta complexidade
-  const modelName = 'gemini-3-pro-preview';
+  // Modelo Flash: mais rápido e estável para aplicações padrão.
+  const modelName = 'gemini-3-flash-preview';
 
   const response = await ai.models.generateContent({
     model: modelName,
@@ -34,8 +34,8 @@ export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): P
       ],
     },
     config: {
-      // Ativação do modo de raciocínio para análise de vídeo
-      thinkingConfig: { thinkingBudget: 16000 },
+      // Desabilitando thinking budget para evitar timeouts e garantir estabilidade
+      thinkingConfig: { thinkingBudget: 0 },
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -96,14 +96,15 @@ export const analyzeSurfVideo = async (videoBase64: string, mimeType: string): P
     },
   });
 
-  if (!response.text) {
-    throw new Error("A IA não retornou conteúdo. O vídeo pode ter sido bloqueado ou é muito curto.");
+  const text = response.text;
+  if (!text) {
+    throw new Error("A IA não retornou conteúdo. O arquivo pode ser incompatível.");
   }
 
   try {
-    return JSON.parse(response.text) as AnalysisResult;
+    return JSON.parse(text) as AnalysisResult;
   } catch (e) {
-    console.error("Erro ao parsear JSON da IA:", response.text);
-    throw new Error("A resposta da IA não está no formato esperado.");
+    console.error("Erro ao parsear JSON:", text);
+    throw new Error("Falha ao processar os dados da análise.");
   }
 };
