@@ -1,14 +1,15 @@
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, 
-  ChevronRight, 
   Waves, 
   Activity, 
   CheckCircle, 
   AlertCircle,
   Cpu,
-  Target
+  Target,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 import { AppState, AnalysisResult } from './types';
 import { analyzeSurfVideo } from './services/geminiService';
@@ -19,7 +20,30 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isKeyAuthorized, setIsKeyAuthorized] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Verificação inicial da chave de API (obrigatório para modelos Pro/Elite)
+  useEffect(() => {
+    const checkKey = async () => {
+      if (typeof window.aistudio !== 'undefined') {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setIsKeyAuthorized(hasKey);
+      } else {
+        // Se não estiver no ambiente AI Studio, assume que a chave vem via process.env
+        setIsKeyAuthorized(!!process.env.API_KEY);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleAuthorize = async () => {
+    if (typeof window.aistudio !== 'undefined') {
+      await window.aistudio.openSelectKey();
+      // Conforme diretrizes: assumir sucesso após o clique para evitar race condition
+      setIsKeyAuthorized(true);
+    }
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -41,18 +65,21 @@ const App: React.FC = () => {
       } catch (error: any) {
         console.error("Detailed error during analysis:", error);
         
-        // Mensagens amigáveis baseadas no erro técnico
-        let msg = 'Erro inesperado na análise.';
-        if (error.message?.includes('413')) msg = 'O vídeo é muito pesado para processamento direto. Tente um clip mais curto ou comprimido.';
-        else if (error.message?.includes('429')) msg = 'Muitas requisições. Aguarde um momento.';
-        else if (error.message) msg = error.message;
+        let msg = 'An API Key must be set to run elite models.';
+        if (error.message?.includes('API Key')) {
+          msg = 'Sua chave de API expirou ou não foi configurada. Por favor, re-autorize o acesso.';
+          setIsKeyAuthorized(false); // Força nova autorização
+        } else if (error.message?.includes('413')) {
+          msg = 'O vídeo é muito pesado para processamento direto.';
+        } else if (error.message) {
+          msg = error.message;
+        }
 
         setErrorMessage(msg);
         setState(AppState.ERROR);
       }
     };
-    reader.onerror = (e) => {
-      console.error("FileReader error:", e);
+    reader.onerror = () => {
       setErrorMessage('Falha ao ler o arquivo físico.');
       setState(AppState.ERROR);
     };
@@ -65,6 +92,42 @@ const App: React.FC = () => {
     setVideoUrl(null);
     setErrorMessage('');
   };
+
+  // TELA DE AUTENTICAÇÃO INICIAL
+  if (!isKeyAuthorized) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-[#0c0c0e] border border-white/10 rounded-3xl p-8 text-center relative overflow-hidden">
+          <div className="absolute inset-0 bg-cyan-500/5 blur-3xl -z-10"></div>
+          <div className="bg-cyan-500/10 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-cyan-500/20">
+            <Lock className="text-cyan-400" size={40} />
+          </div>
+          <h2 className="text-2xl font-black wsl-italic uppercase mb-4 tracking-tight">
+            Authentication Required
+          </h2>
+          <p className="text-gray-500 text-sm mb-8 leading-relaxed">
+            SurfCoach IA utilizes Gemini 3 Pro for elite biomechanical analysis. To continue, you must authorize your API Key with a paid GCP project.
+          </p>
+          <div className="space-y-4">
+            <button 
+              onClick={handleAuthorize}
+              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all"
+            >
+              <ShieldCheck size={20} />
+              Authorize Elite Access
+            </button>
+            <a 
+              href="https://ai.google.dev/gemini-api/docs/billing" 
+              target="_blank" 
+              className="block text-[10px] text-gray-600 hover:text-cyan-400 uppercase font-bold tracking-widest transition-colors"
+            >
+              Learn about billing & keys
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] selection:bg-cyan-500/30">
@@ -86,7 +149,11 @@ const App: React.FC = () => {
           <div className="hidden md:flex items-center gap-8">
             <a href="#" className="text-xs font-bold text-cyan-400 uppercase tracking-widest border-b-2 border-cyan-400 pb-1">Dashboard</a>
             <a href="#" className="text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-white transition-colors">Academy</a>
-            <a href="#" className="text-xs font-bold text-gray-500 uppercase tracking-widest hover:text-white transition-colors">Compare</a>
+            <div className="h-4 w-px bg-white/10"></div>
+            <div className="flex items-center gap-2 px-3 py-1 bg-cyan-500/10 rounded-full border border-cyan-500/20">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></div>
+              <span className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Pro License Active</span>
+            </div>
           </div>
 
           <button 
@@ -117,7 +184,7 @@ const App: React.FC = () => {
                     Elite Biomechanical Analysis <span className="text-cyan-400">Powered by Gemini 3 Pro</span>
                   </h2>
                   <p className="text-gray-500 text-sm max-w-md mx-auto mb-8">
-                    Upload your raw footage for frame-by-frame professional analysis. No limits, pure performance.
+                    Upload your raw footage for frame-by-frame professional analysis. Unlimited duration, pure performance metrics.
                   </p>
                   <button 
                     onClick={() => fileInputRef.current?.click()}
