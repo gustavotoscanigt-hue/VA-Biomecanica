@@ -7,7 +7,9 @@ import {
   Activity, 
   AlertCircle,
   Cpu,
-  BarChart3
+  BarChart3,
+  RefreshCcw,
+  Zap
 } from 'lucide-react';
 import { AppState, AnalysisResult } from './types';
 import Dashboard from './components/Dashboard';
@@ -19,31 +21,35 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const performAnalysis = async (base64Data: string, mimeType: string) => {
+  const performAnalysis = async (base64Data: string, mimeType: string, retryCount = 0) => {
     try {
-      // Inicialização direta usando a chave do ambiente, sem verificações de UI
+      // Initialize Gemini right before the call to ensure the latest API key is used
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-      const model = 'gemini-3-flash-preview';
+      
+      // Gemini 3 Pro is selected for complex biomechanical reasoning tasks
+      const model = 'gemini-3-pro-preview';
 
       const response = await ai.models.generateContent({
         model: model,
         contents: {
           parts: [
             { 
-              text: `Professional Surf Biometrics Analysis.
-              Analyze the video and provide high-performance metrics.
-              Return ONLY a JSON object with: 
-              - score (0-10)
-              - summary (one sentence elite coach style)
-              - posture (array of 5 metrics: subject, value, fullMark)
-              - telemetry (array of 10 points: time, flow, power)
-              - maneuvers (array of detected tricks: time, name, execution)
-              - drills (array of 3 suggested training exercises: title, description, focus)` 
+              text: `Atue como um juiz e técnico da WSL. Analise biomecanicamente este vídeo de surf.
+              
+              Retorne APENAS JSON:
+              - score: (0.0-10.0)
+              - summary: (feedback técnico de elite)
+              - posture: array de 5 objetos (subject: 'Joelho', 'Ombro', 'Quadril', 'Base', 'Cabeça', value: 0-10, fullMark: 10)
+              - telemetry: array de 10 objetos (time, flow, power)
+              - maneuvers: array de objetos detectados (time, name, execution)
+              - drills: array de 3 treinos (title, description, focus)` 
             },
             { inlineData: { data: base64Data, mimeType } }
           ]
         },
         config: {
+          // Thinking budget set to 0 for lower latency as per guidelines for Gemini 3 series
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -104,12 +110,29 @@ const App: React.FC = () => {
         }
       });
 
-      const result = JSON.parse(response.text) as AnalysisResult;
+      // Directly access .text property from GenerateContentResponse
+      const textResponse = response.text;
+      if (!textResponse) throw new Error("Empty response from model");
+
+      const result = JSON.parse(textResponse) as AnalysisResult;
       setAnalysis(result);
       setState(AppState.COMPLETED);
     } catch (error: any) {
-      console.error("Analysis Failure:", error);
-      setErrorMessage("Ocorreu um erro técnico ao processar a biomecânica. Certifique-se de que o arquivo é um vídeo válido.");
+      console.error("AI Error:", error);
+
+      // Recursive retry logic for intermittent failures
+      if (retryCount < 1) {
+        return performAnalysis(base64Data, mimeType, retryCount + 1);
+      }
+
+      let msg = "Falha técnica na análise. Tente um vídeo mais curto ou mude o formato.";
+      if (error.message?.includes("Resource has been exhausted")) {
+        msg = "Sistema sobrecarregado. Aguarde um minuto e tente novamente.";
+      } else if (error.message?.includes("safety")) {
+        msg = "O vídeo foi bloqueado pelos filtros de segurança. Tente outro clipe.";
+      }
+      
+      setErrorMessage(msg);
       setState(AppState.ERROR);
     }
   };
@@ -127,6 +150,10 @@ const App: React.FC = () => {
       const base64Data = (reader.result as string).split(',')[1];
       setState(AppState.ANALYZING);
       performAnalysis(base64Data, file.type);
+    };
+    reader.onerror = () => {
+      setErrorMessage("Erro ao ler o arquivo de vídeo.");
+      setState(AppState.ERROR);
     };
     reader.readAsDataURL(file);
   };
@@ -148,7 +175,7 @@ const App: React.FC = () => {
               <Waves className="text-black" size={24} />
             </div>
             <div>
-              <h1 className="text-2xl wsl-italic uppercase tracking-tighter leading-none">
+              <h1 className="text-2xl wsl-italic uppercase tracking-tighter leading-none italic font-black">
                 SurfCoach <span className="text-cyan-400">IA</span>
               </h1>
               <div className="flex items-center gap-2 mt-1">
@@ -161,9 +188,10 @@ const App: React.FC = () => {
           {state !== AppState.IDLE && (
             <button 
               onClick={reset}
-              className="text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+              className="text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-colors flex items-center gap-2"
             >
-              Reset Session
+              <RefreshCcw size={14} />
+              Reset Analysis
             </button>
           )}
         </div>
@@ -172,23 +200,30 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-8 py-12">
         {state === AppState.IDLE && (
           <div className="flex flex-col items-center justify-center min-h-[65vh] text-center">
-             <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-[3rem] blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
-                <div className="bg-[#0c0c0e] p-12 rounded-[3rem] border border-white/10 relative z-10 max-w-lg">
-                   <Cpu className="text-cyan-400 mx-auto mb-8" size={64} />
-                   <h2 className="text-4xl font-black wsl-italic uppercase mb-6 tracking-tighter">
-                     Professional <span className="text-cyan-400">Analysis</span>
-                   </h2>
-                   <p className="text-gray-500 text-sm mb-12 leading-relaxed font-medium uppercase tracking-wide">
-                     Upload de vídeos MP4/MOV para avaliação biomecânica de elite e telemetria de fluxo.
-                   </p>
-                   <div className="space-y-4">
-                     <button className="w-full bg-white text-black py-5 rounded-2xl font-black uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:bg-cyan-400 transition-all shadow-xl">
-                       <Upload size={24} />
-                       Upload Footage
-                     </button>
-                     <p className="text-[10px] text-gray-600 font-bold uppercase tracking-widest">Supports up to 4K resolution</p>
+             <div className="relative group cursor-pointer w-full max-w-lg" onClick={() => fileInputRef.current?.click()}>
+                <div className="absolute -inset-2 bg-cyan-500/20 rounded-[3.5rem] blur-2xl opacity-0 group-hover:opacity-100 transition duration-700"></div>
+                <div className="bg-[#0c0c0e] p-16 rounded-[3rem] border border-white/5 relative z-10 neon-border">
+                   <div className="w-20 h-20 bg-cyan-500/10 rounded-2xl flex items-center justify-center mx-auto mb-10 border border-cyan-500/20">
+                     <Zap className="text-cyan-400" size={40} />
                    </div>
+                   <h2 className="text-4xl font-black wsl-italic uppercase mb-6 tracking-tighter italic">
+                     Professional <br /><span className="text-cyan-400">Analysis</span>
+                   </h2>
+                   <p className="text-gray-500 text-sm mb-12 leading-relaxed font-medium uppercase tracking-widest px-8">
+                     Envie vídeos MP4/MOV para avaliação de biomecânica e telemetria.
+                   </p>
+                   <button className="w-full bg-white text-black py-6 rounded-2xl font-black uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:bg-cyan-400 transition-all shadow-xl text-xs">
+                     <Upload size={20} />
+                     Upload Footage
+                   </button>
+                   {/* Hidden input to trigger file selection */}
+                   <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleFileUpload} 
+                      accept="video/*" 
+                      className="hidden" 
+                   />
                 </div>
              </div>
           </div>
@@ -197,37 +232,39 @@ const App: React.FC = () => {
         {(state === AppState.UPLOADING || state === AppState.ANALYZING) && (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="relative mb-12">
-              <div className="w-32 h-32 rounded-full border-[3px] border-cyan-500/10 border-t-cyan-400 animate-spin"></div>
+              <div className="w-32 h-32 rounded-full border-[2px] border-cyan-500/10 border-t-cyan-400 animate-spin"></div>
               <div className="absolute inset-0 flex items-center justify-center">
                 <BarChart3 className="text-cyan-400 animate-pulse" size={40} />
               </div>
             </div>
             <div className="text-center">
-              <h3 className="text-3xl font-black wsl-italic uppercase mb-3 tracking-tighter">
-                {state === AppState.UPLOADING ? 'Uploading...' : 'Processing Biometrics...'}
+              <h3 className="text-3xl font-black wsl-italic uppercase mb-3 tracking-tighter italic">
+                {state === AppState.UPLOADING ? 'Uploading...' : 'Processing...'}
               </h3>
-              <p className="text-gray-500 text-[11px] font-black uppercase tracking-[0.4em] animate-pulse">
-                Neural Analysis Core Active
+              <p className="text-gray-500 text-sm font-medium uppercase tracking-widest">
+                {state === AppState.UPLOADING 
+                  ? 'Transmitting data to elite surf analytics engine...' 
+                  : 'Analyzing biomechanics, board trajectory and power...'}
               </p>
             </div>
           </div>
         )}
 
         {state === AppState.ERROR && (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <div className="bg-red-500/10 p-6 rounded-full mb-8 border border-red-500/20 shadow-[0_0_30px_rgba(239,68,68,0.1)]">
-              <AlertCircle className="text-red-500" size={64} />
+          <div className="flex flex-col items-center justify-center min-h-[60vh]">
+            <div className="bg-red-500/10 p-12 rounded-[3rem] border border-red-500/20 text-center max-w-md">
+              <AlertCircle className="text-red-500 mx-auto mb-6" size={48} />
+              <h3 className="text-2xl font-black uppercase italic mb-4">Analysis Failed</h3>
+              <p className="text-gray-400 text-sm mb-8 leading-relaxed">
+                {errorMessage}
+              </p>
+              <button 
+                onClick={reset}
+                className="w-full bg-white text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-red-500 hover:text-white transition-all"
+              >
+                Try Another Video
+              </button>
             </div>
-            <h3 className="text-3xl font-black wsl-italic uppercase mb-4 text-red-500 tracking-tighter">Analysis Failed</h3>
-            <p className="text-gray-400 text-sm max-w-md mb-12 leading-relaxed font-medium uppercase">
-              {errorMessage}
-            </p>
-            <button 
-              onClick={reset}
-              className="bg-white text-black px-12 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all shadow-lg"
-            >
-              Try Again
-            </button>
           </div>
         )}
 
@@ -236,21 +273,22 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileUpload} 
-        accept="video/mp4,video/quicktime" 
-        className="hidden" 
-      />
-
-      <footer className="border-t border-white/5 bg-[#080808] py-16 text-center">
-          <p className="text-gray-600 text-[10px] font-black uppercase tracking-[0.5em]">
-            SurfCoach IA • Elite Performance Training • v2.0
+      <footer className="border-t border-white/5 py-12 bg-black/50">
+        <div className="max-w-7xl mx-auto px-8 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-3">
+            <Cpu className="text-cyan-500" size={16} />
+            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+              Powered by Gemini 3 Pro High-Performance Computing
+            </p>
+          </div>
+          <p className="text-[10px] text-gray-700 font-bold uppercase tracking-[0.2em]">
+            &copy; 2025 SurfCoach Intelligence Systems. All rights reserved.
           </p>
+        </div>
       </footer>
     </div>
   );
 };
 
+// Fix: Exporting App as default to satisfy index.tsx import
 export default App;
