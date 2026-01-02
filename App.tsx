@@ -23,33 +23,32 @@ const App: React.FC = () => {
 
   const performAnalysis = async (base64Data: string, mimeType: string, retryCount = 0) => {
     try {
-      // Initialize Gemini right before the call to ensure the latest API key is used
+      // Criação da instância com a chave do ambiente
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
       
-      // Gemini 3 Pro is selected for complex biomechanical reasoning tasks
-      const model = 'gemini-3-pro-preview';
+      // Flash é preferível para processamento de vídeo rápido e resiliente
+      const modelName = 'gemini-3-flash-preview';
 
       const response = await ai.models.generateContent({
-        model: model,
+        model: modelName,
         contents: {
           parts: [
             { 
-              text: `Atue como um juiz e técnico da WSL. Analise biomecanicamente este vídeo de surf.
+              text: `Analise este vídeo de surf como um técnico da elite WSL. 
+              Extraia métricas biomecânicas e de performance.
               
-              Retorne APENAS JSON:
-              - score: (0.0-10.0)
-              - summary: (feedback técnico de elite)
-              - posture: array de 5 objetos (subject: 'Joelho', 'Ombro', 'Quadril', 'Base', 'Cabeça', value: 0-10, fullMark: 10)
-              - telemetry: array de 10 objetos (time, flow, power)
-              - maneuvers: array de objetos detectados (time, name, execution)
-              - drills: array de 3 treinos (title, description, focus)` 
+              Retorne estritamente JSON:
+              - score: nota de 0 a 10
+              - summary: feedback técnico curto e impactante
+              - posture: 5 métricas (subject: 'Joelho', 'Ombro', 'Quadril', 'Base', 'Cabeça', value: 0-10, fullMark: 10)
+              - telemetry: 10 pontos de dados (time, flow: 0-100, power: 0-100)
+              - maneuvers: lista de manobras (time: '00:00', name: string, execution: 0-10)
+              - drills: 3 treinos recomendados (title, description, focus)` 
             },
             { inlineData: { data: base64Data, mimeType } }
           ]
         },
         config: {
-          // Thinking budget set to 0 for lower latency as per guidelines for Gemini 3 series
-          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -110,29 +109,38 @@ const App: React.FC = () => {
         }
       });
 
-      // Directly access .text property from GenerateContentResponse
       const textResponse = response.text;
-      if (!textResponse) throw new Error("Empty response from model");
+      if (!textResponse) throw new Error("O modelo retornou uma resposta vazia.");
 
       const result = JSON.parse(textResponse) as AnalysisResult;
       setAnalysis(result);
       setState(AppState.COMPLETED);
     } catch (error: any) {
-      console.error("AI Error:", error);
+      console.error("Erro na API Gemini:", error);
 
-      // Recursive retry logic for intermittent failures
-      if (retryCount < 1) {
+      // Tratamento específico para erro de entidade/chave conforme documentação
+      if (error.message?.includes("Requested entity was not found") || error.message?.includes("API key not valid")) {
+        if (typeof window !== 'undefined' && (window as any).aistudio) {
+          await (window as any).aistudio.openSelectKey();
+          // Após abrir o seletor, tentamos novamente uma única vez
+          if (retryCount < 1) return performAnalysis(base64Data, mimeType, retryCount + 1);
+        }
+      }
+
+      // Tentativa de recuperação genérica
+      if (retryCount < 1 && !error.message?.includes("safety")) {
         return performAnalysis(base64Data, mimeType, retryCount + 1);
       }
 
-      let msg = "Falha técnica na análise. Tente um vídeo mais curto ou mude o formato.";
-      if (error.message?.includes("Resource has been exhausted")) {
-        msg = "Sistema sobrecarregado. Aguarde um minuto e tente novamente.";
+      let userFriendlyMsg = "Ocorreu um erro ao processar o vídeo. Tente um clipe mais curto (menos de 30s) ou em menor resolução.";
+      
+      if (error.message?.includes("exhausted")) {
+        userFriendlyMsg = "Limite de requisições excedido. Aguarde alguns instantes.";
       } else if (error.message?.includes("safety")) {
-        msg = "O vídeo foi bloqueado pelos filtros de segurança. Tente outro clipe.";
+        userFriendlyMsg = "O vídeo não pôde ser analisado por restrições de segurança do modelo.";
       }
       
-      setErrorMessage(msg);
+      setErrorMessage(userFriendlyMsg);
       setState(AppState.ERROR);
     }
   };
@@ -140,6 +148,13 @@ const App: React.FC = () => {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    // Vídeos maiores que 20MB costumam falhar no upload Base64 direto
+    if (file.size > 20 * 1024 * 1024) {
+      setErrorMessage("O arquivo é muito grande (Máx 20MB). Reduza a duração ou qualidade do vídeo.");
+      setState(AppState.ERROR);
+      return;
+    }
 
     setState(AppState.UPLOADING);
     const url = URL.createObjectURL(file);
@@ -167,7 +182,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white">
-      {/* PROFESSIONAL NAV */}
       <nav className="border-b border-white/5 bg-black/80 backdrop-blur-2xl sticky top-0 z-50 h-20">
         <div className="max-w-7xl mx-auto px-8 h-full flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -175,12 +189,12 @@ const App: React.FC = () => {
               <Waves className="text-black" size={24} />
             </div>
             <div>
-              <h1 className="text-2xl wsl-italic uppercase tracking-tighter leading-none italic font-black">
+              <h1 className="text-2xl italic font-black uppercase tracking-tighter leading-none">
                 SurfCoach <span className="text-cyan-400">IA</span>
               </h1>
               <div className="flex items-center gap-2 mt-1">
                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></div>
-                 <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.3em]">System Online</p>
+                 <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.3em]">Neural Link Stable</p>
               </div>
             </div>
           </div>
@@ -191,7 +205,7 @@ const App: React.FC = () => {
               className="text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-colors flex items-center gap-2"
             >
               <RefreshCcw size={14} />
-              Reset Analysis
+              New Analysis
             </button>
           )}
         </div>
@@ -201,22 +215,21 @@ const App: React.FC = () => {
         {state === AppState.IDLE && (
           <div className="flex flex-col items-center justify-center min-h-[65vh] text-center">
              <div className="relative group cursor-pointer w-full max-w-lg" onClick={() => fileInputRef.current?.click()}>
-                <div className="absolute -inset-2 bg-cyan-500/20 rounded-[3.5rem] blur-2xl opacity-0 group-hover:opacity-100 transition duration-700"></div>
+                <div className="absolute -inset-4 bg-cyan-500/10 rounded-[4rem] blur-3xl opacity-50 group-hover:opacity-100 transition duration-700"></div>
                 <div className="bg-[#0c0c0e] p-16 rounded-[3rem] border border-white/5 relative z-10 neon-border">
-                   <div className="w-20 h-20 bg-cyan-500/10 rounded-2xl flex items-center justify-center mx-auto mb-10 border border-cyan-500/20">
+                   <div className="w-20 h-20 bg-cyan-500/10 rounded-3xl flex items-center justify-center mx-auto mb-10 border border-cyan-500/20">
                      <Zap className="text-cyan-400" size={40} />
                    </div>
-                   <h2 className="text-4xl font-black wsl-italic uppercase mb-6 tracking-tighter italic">
-                     Professional <br /><span className="text-cyan-400">Analysis</span>
+                   <h2 className="text-4xl font-black italic uppercase mb-6 tracking-tighter">
+                     Biomechanic <br /><span className="text-cyan-400">Engine</span>
                    </h2>
-                   <p className="text-gray-500 text-sm mb-12 leading-relaxed font-medium uppercase tracking-widest px-8">
-                     Envie vídeos MP4/MOV para avaliação de biomecânica e telemetria.
+                   <p className="text-gray-500 text-sm mb-12 leading-relaxed font-medium uppercase tracking-widest px-6">
+                     Análise profissional de fluxo, potência e postura via IA.
                    </p>
                    <button className="w-full bg-white text-black py-6 rounded-2xl font-black uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:bg-cyan-400 transition-all shadow-xl text-xs">
                      <Upload size={20} />
-                     Upload Footage
+                     Select Video
                    </button>
-                   {/* Hidden input to trigger file selection */}
                    <input 
                       type="file" 
                       ref={fileInputRef} 
@@ -238,13 +251,11 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="text-center">
-              <h3 className="text-3xl font-black wsl-italic uppercase mb-3 tracking-tighter italic">
-                {state === AppState.UPLOADING ? 'Uploading...' : 'Processing...'}
+              <h3 className="text-3xl font-black italic uppercase mb-3 tracking-tighter">
+                {state === AppState.UPLOADING ? 'Uploading...' : 'Analyzing Flow...'}
               </h3>
-              <p className="text-gray-500 text-sm font-medium uppercase tracking-widest">
-                {state === AppState.UPLOADING 
-                  ? 'Transmitting data to elite surf analytics engine...' 
-                  : 'Analyzing biomechanics, board trajectory and power...'}
+              <p className="text-gray-500 text-sm font-medium uppercase tracking-widest animate-pulse">
+                Calculating board trajectory and athlete positioning...
               </p>
             </div>
           </div>
@@ -254,15 +265,15 @@ const App: React.FC = () => {
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="bg-red-500/10 p-12 rounded-[3rem] border border-red-500/20 text-center max-w-md">
               <AlertCircle className="text-red-500 mx-auto mb-6" size={48} />
-              <h3 className="text-2xl font-black uppercase italic mb-4">Analysis Failed</h3>
-              <p className="text-gray-400 text-sm mb-8 leading-relaxed">
+              <h3 className="text-2xl font-black uppercase italic mb-4">Analysis Interrupted</h3>
+              <p className="text-gray-400 text-sm mb-8 leading-relaxed font-medium">
                 {errorMessage}
               </p>
               <button 
                 onClick={reset}
                 className="w-full bg-white text-black py-4 rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-red-500 hover:text-white transition-all"
               >
-                Try Another Video
+                Try Again
               </button>
             </div>
           </div>
@@ -278,11 +289,11 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <Cpu className="text-cyan-500" size={16} />
             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-              Powered by Gemini 3 Pro High-Performance Computing
+              Gemini 3 Flash Multimodal Integration
             </p>
           </div>
           <p className="text-[10px] text-gray-700 font-bold uppercase tracking-[0.2em]">
-            &copy; 2025 SurfCoach Intelligence Systems. All rights reserved.
+            &copy; 2025 SurfCoach. Elite Training Systems.
           </p>
         </div>
       </footer>
@@ -290,5 +301,4 @@ const App: React.FC = () => {
   );
 };
 
-// Fix: Exporting App as default to satisfy index.tsx import
 export default App;
