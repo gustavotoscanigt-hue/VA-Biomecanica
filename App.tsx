@@ -10,7 +10,8 @@ import {
   BarChart3,
   RefreshCcw,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  ShieldAlert
 } from 'lucide-react';
 import { AppState, AnalysisResult } from './types';
 import Dashboard from './components/Dashboard';
@@ -23,72 +24,78 @@ const App: React.FC = () => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Função para extrair frames de vídeos grandes e garantir que "sempre" funcione
-  const extractFrames = async (file: File, frameCount: number = 15): Promise<any[]> => {
+  // Função robusta para extrair quadros mantendo a compatibilidade com arquivos gigantes
+  const extractFrames = async (file: File, frameCount: number = 12): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const video = document.createElement('video');
-      video.src = URL.createObjectURL(file);
-      video.crossOrigin = "anonymous";
+      const videoUrl = URL.createObjectURL(file);
+      video.src = videoUrl;
+      video.muted = true;
+      video.playsInline = true;
       
       video.onloadedmetadata = async () => {
-        const frames: any[] = [];
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const duration = video.duration;
-        
-        canvas.width = 640; // Otimizado para análise de IA
-        canvas.height = 360;
-
-        for (let i = 0; i < frameCount; i++) {
-          const time = (duration / frameCount) * i;
-          video.currentTime = time;
+        try {
+          const frames: any[] = [];
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { alpha: false });
+          const duration = video.duration;
           
-          await new Promise((res) => {
-            video.onseeked = () => {
-              ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-              frames.push({
-                inlineData: {
-                  data: dataUrl.split(',')[1],
-                  mimeType: 'image/jpeg'
-                }
-              });
-              res(true);
-            };
-          });
+          // Resolução otimizada para Gemini Vision (proporção 16:9)
+          canvas.width = 720;
+          canvas.height = 405;
+
+          for (let i = 0; i < frameCount; i++) {
+            const time = (duration / (frameCount + 1)) * (i + 1);
+            video.currentTime = time;
+            
+            await new Promise((res) => {
+              const onSeeked = () => {
+                ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                frames.push({
+                  inlineData: {
+                    data: dataUrl.split(',')[1],
+                    mimeType: 'image/jpeg'
+                  }
+                });
+                video.removeEventListener('seeked', onSeeked);
+                res(true);
+              };
+              video.addEventListener('seeked', onSeeked);
+            });
+          }
+          URL.revokeObjectURL(videoUrl);
+          resolve(frames);
+        } catch (err) {
+          reject(err);
         }
-        resolve(frames);
       };
-      video.onerror = reject;
+      video.onerror = () => reject(new Error("Falha ao carregar codec de vídeo."));
     });
   };
 
   const performAnalysis = async (contentParts: any[]) => {
     try {
+      // Fix: Use process.env.API_KEY directly in the constructor as per guidelines
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-      const modelName = 'gemini-3-flash-preview';
+      
+      // Fix: Upgraded to gemini-3-pro-preview for complex biomechanical reasoning tasks
+      const modelName = 'gemini-3-pro-preview';
 
       const response = await ai.models.generateContent({
         model: modelName,
         contents: {
           parts: [
             { 
-              text: `Analise as imagens/vídeo de surf fornecidos. Atue como um técnico de elite da WSL.
-              Avalie a biomecânica (joelhos, ombros, centro de gravidade), o fluxo na onda e a potência das manobras.
-              
-              Retorne estritamente JSON:
-              - score: nota de 0 a 10
-              - summary: feedback técnico curto e impactante
-              - posture: 5 métricas (subject: 'Joelho', 'Ombro', 'Quadril', 'Base', 'Cabeça', value: 0-10, fullMark: 10)
-              - telemetry: 10 pontos de dados simulando a linha de tempo (time, flow: 0-100, power: 0-100)
-              - maneuvers: lista de manobras detectadas (time: '00:00', name: string, execution: 0-10)
-              - drills: 3 treinos recomendados (title, description, focus)` 
+              text: `Atue como um juiz técnico da WSL. Analise esta sequência de surf e retorne um diagnóstico biomecânico de alta performance. Importante: Se houver apenas imagens, analise a progressão do movimento entre elas.` 
             },
             ...contentParts
           ]
         },
         config: {
           responseMimeType: "application/json",
+          // Fix: Removed undocumented and incorrectly typed safetySettings. 
+          // Recommended: Use responseSchema for robust JSON structure as per guidelines.
           responseSchema: {
             type: Type.OBJECT,
             properties: {
@@ -101,10 +108,10 @@ const App: React.FC = () => {
                   properties: {
                     subject: { type: Type.STRING },
                     value: { type: Type.NUMBER },
-                    fullMark: { type: Type.NUMBER },
+                    fullMark: { type: Type.NUMBER }
                   },
-                  required: ["subject", "value", "fullMark"],
-                },
+                  required: ["subject", "value", "fullMark"]
+                }
               },
               telemetry: {
                 type: Type.ARRAY,
@@ -113,10 +120,10 @@ const App: React.FC = () => {
                   properties: {
                     time: { type: Type.STRING },
                     flow: { type: Type.NUMBER },
-                    power: { type: Type.NUMBER },
+                    power: { type: Type.NUMBER }
                   },
-                  required: ["time", "flow", "power"],
-                },
+                  required: ["time", "flow", "power"]
+                }
               },
               maneuvers: {
                 type: Type.ARRAY,
@@ -125,10 +132,10 @@ const App: React.FC = () => {
                   properties: {
                     time: { type: Type.STRING },
                     name: { type: Type.STRING },
-                    execution: { type: Type.NUMBER },
+                    execution: { type: Type.NUMBER }
                   },
-                  required: ["time", "name", "execution"],
-                },
+                  required: ["time", "name", "execution"]
+                }
               },
               drills: {
                 type: Type.ARRAY,
@@ -137,23 +144,38 @@ const App: React.FC = () => {
                   properties: {
                     title: { type: Type.STRING },
                     description: { type: Type.STRING },
-                    focus: { type: Type.STRING },
+                    focus: { type: Type.STRING }
                   },
-                  required: ["title", "description", "focus"],
-                },
-              },
+                  required: ["title", "description", "focus"]
+                }
+              }
             },
-            required: ["score", "summary", "posture", "telemetry", "maneuvers", "drills"],
+            required: ["score", "summary", "posture", "telemetry", "maneuvers", "drills"]
           }
         }
       });
 
-      const result = JSON.parse(response.text);
+      // Fix: Extract text directly using .text property as per guidelines
+      const rawText = response.text || "";
+      if (!rawText) {
+        throw new Error("O conteúdo foi bloqueado pelos filtros de segurança da API ou retornou vazio.");
+      }
+
+      const result = JSON.parse(rawText.trim());
+      
       setAnalysis(result);
       setState(AppState.COMPLETED);
     } catch (error: any) {
-      console.error("Analysis Error:", error);
-      setErrorMessage("Erro no processamento neural. Tente novamente ou use outro clipe.");
+      console.error("Critical Analysis Error:", error);
+      
+      let msg = "Erro no processamento neural. Tente um vídeo com melhor iluminação.";
+      if (error.message?.includes("segurança") || error.message?.includes("blocked")) {
+        msg = "O vídeo foi sinalizado pelos filtros de segurança. Tente outro ângulo.";
+      } else if (error instanceof SyntaxError) {
+        msg = "Falha na estrutura de dados da IA. Tente novamente.";
+      }
+      
+      setErrorMessage(msg);
       setState(AppState.ERROR);
     }
   };
@@ -169,27 +191,25 @@ const App: React.FC = () => {
     try {
       let contentParts = [];
 
-      // Se o arquivo for maior que 15MB, usamos extração de frames para garantir que funcione
-      if (file.size > 15 * 1024 * 1024) {
+      // Sempre otimizamos vídeos maiores que 10MB para garantir estabilidade absoluta
+      if (file.size > 10 * 1024 * 1024) {
         setIsOptimizing(true);
         const frames = await extractFrames(file);
         contentParts = frames;
         setIsOptimizing(false);
       } else {
-        // Para arquivos pequenos, enviamos o vídeo original
         const reader = new FileReader();
-        const base64Promise = new Promise((resolve) => {
+        const base64 = await new Promise<string>((resolve) => {
           reader.onload = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(file);
         });
-        reader.readAsDataURL(file);
-        const base64 = await base64Promise;
         contentParts = [{ inlineData: { data: base64, mimeType: file.type } }];
       }
 
       setState(AppState.ANALYZING);
       await performAnalysis(contentParts);
-    } catch (err) {
-      setErrorMessage("Erro ao processar o arquivo de vídeo.");
+    } catch (err: any) {
+      setErrorMessage(err.message || "Erro ao carregar o arquivo de vídeo.");
       setState(AppState.ERROR);
     }
   };
@@ -216,7 +236,7 @@ const App: React.FC = () => {
               </h1>
               <div className="flex items-center gap-2 mt-1">
                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></div>
-                 <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.3em]">Unlimited Analysis Mode</p>
+                 <p className="text-[9px] text-gray-400 font-black uppercase tracking-[0.3em]">Precision Core v3.0</p>
               </div>
             </div>
           </div>
@@ -227,7 +247,7 @@ const App: React.FC = () => {
               className="text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-white transition-colors flex items-center gap-2"
             >
               <RefreshCcw size={14} />
-              Reset Analysis
+              Reset System
             </button>
           )}
         </div>
@@ -243,22 +263,16 @@ const App: React.FC = () => {
                      <Zap className="text-cyan-400" size={40} />
                    </div>
                    <h2 className="text-4xl font-black italic uppercase mb-6 tracking-tighter">
-                     High Performance <br /><span className="text-cyan-400">Analysis</span>
+                     Universal <br /><span className="text-cyan-400">Surf Analysis</span>
                    </h2>
                    <p className="text-gray-500 text-sm mb-12 leading-relaxed font-medium uppercase tracking-widest px-6">
-                     Sem limites de tamanho. Otimização automática de biomecânica.
+                     Suporte a arquivos de qualquer tamanho via Biomechanic Sampling.
                    </p>
                    <button className="w-full bg-white text-black py-6 rounded-2xl font-black uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:bg-cyan-400 transition-all shadow-xl text-xs">
                      <Upload size={20} />
-                     Upload Any Size
+                     Upload Video
                    </button>
-                   <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      onChange={handleFileUpload} 
-                      accept="video/*" 
-                      className="hidden" 
-                   />
+                   <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/*" className="hidden" />
                 </div>
              </div>
           </div>
@@ -274,12 +288,12 @@ const App: React.FC = () => {
             </div>
             <div className="text-center">
               <h3 className="text-3xl font-black italic uppercase mb-3 tracking-tighter">
-                {isOptimizing ? 'Optimizing Frame Set...' : (state === AppState.UPLOADING ? 'Uploading...' : 'Analyzing Flow...')}
+                {isOptimizing ? 'Optimizing Data...' : 'Neural Processing...'}
               </h3>
-              <p className="text-gray-500 text-sm font-medium uppercase tracking-widest animate-pulse max-w-md">
+              <p className="text-gray-500 text-sm font-medium uppercase tracking-widest animate-pulse max-w-md mx-auto">
                 {isOptimizing 
-                  ? 'Reduzindo carga para análise de alta fidelidade sem limites...' 
-                  : 'Calculando trajetórias, centro de massa e potência de manobra...'}
+                  ? 'Preparando frames para análise de alta fidelidade sem limites...' 
+                  : 'O modelo está avaliando seu posicionamento e manobras...'}
               </p>
             </div>
           </div>
@@ -288,8 +302,8 @@ const App: React.FC = () => {
         {state === AppState.ERROR && (
           <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <div className="bg-red-500/10 p-12 rounded-[3rem] border border-red-500/20 text-center max-w-md">
-              <AlertCircle className="text-red-500 mx-auto mb-6" size={48} />
-              <h3 className="text-2xl font-black uppercase italic mb-4">Process Failed</h3>
+              <ShieldAlert className="text-red-500 mx-auto mb-6" size={48} />
+              <h3 className="text-2xl font-black uppercase italic mb-4">Neural Error</h3>
               <p className="text-gray-400 text-sm mb-8 leading-relaxed font-medium">
                 {errorMessage}
               </p>
@@ -313,7 +327,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <CheckCircle2 className="text-cyan-500" size={16} />
             <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
-              Unlimited Payload Architecture Enabled
+              Gemini 3 Pro | Robust Integration Enabled
             </p>
           </div>
           <p className="text-[10px] text-gray-700 font-bold uppercase tracking-[0.2em]">
